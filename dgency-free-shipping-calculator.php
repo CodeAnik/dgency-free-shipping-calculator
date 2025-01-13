@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Dgency Free Shipping Calculator
  * Plugin URI: https://github.com/CodeAnik
- * Description: Automatically enables free shipping for orders containing 2 jars or more.
- * Version: 1.0.0
+ * Description: Automatically enables free shipping for orders containing 2 jars or more, based on shipping zone conditions.
+ * Version: 1.1.0
  * Author: Md. Anik Khan
  * Author URI: https://codeanik.github.io/portfolio
  * License: GPL2
@@ -14,10 +14,10 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-// Filter to modify shipping methods based on the number of jars in the cart
-add_filter('woocommerce_package_rates', 'custom_hide_shipping_methods_based_on_total_quantity', 10, 2);
+// Filter to modify shipping methods based on the number of jars in the cart and shipping zone conditions
+add_filter('woocommerce_package_rates', 'custom_hide_shipping_methods_based_on_zone_and_quantity', 10, 2);
 
-function custom_hide_shipping_methods_based_on_total_quantity($rates, $package) {
+function custom_hide_shipping_methods_based_on_zone_and_quantity($rates, $package) {
     $quantity_threshold = 2; // Minimum total jars for free shipping
     $total_jars = 0; // To store the total number of jars across all products
 
@@ -45,24 +45,40 @@ function custom_hide_shipping_methods_based_on_total_quantity($rates, $package) 
         $total_jars += $jars_per_product * $cart_quantity;
     }
 
-    // Determine whether free shipping is applicable
-    $free_shipping_applicable = $total_jars >= $quantity_threshold;
+    // Get the shipping methods for the current zone
+    $available_methods = array_column($rates, 'method_id');
 
-    // Filter rates
-    foreach ($rates as $rate_id => $rate) {
-        if ('free_shipping' === $rate->method_id && !$free_shipping_applicable) {
-            unset($rates[$rate_id]); // Remove free shipping if not applicable
-        } elseif ('flat_rate' === $rate->method_id && $free_shipping_applicable) {
-            unset($rates[$rate_id]); // Remove flat rate if free shipping is applicable
+    // Check if both "Flat Rate" and "Free Shipping" methods are present
+    $has_flat_rate = in_array('flat_rate', $available_methods);
+    $has_free_shipping = in_array('free_shipping', $available_methods);
+
+    // Allow free shipping functionality only if the zone has both "Flat Rate" and "Free Shipping"
+    if ($has_flat_rate && $has_free_shipping) {
+        $free_shipping_applicable = $total_jars >= $quantity_threshold;
+
+        // Filter rates
+        foreach ($rates as $rate_id => $rate) {
+            if ('free_shipping' === $rate->method_id && !$free_shipping_applicable) {
+                unset($rates[$rate_id]); // Remove free shipping if not applicable
+            } elseif ('flat_rate' === $rate->method_id && $free_shipping_applicable) {
+                unset($rates[$rate_id]); // Remove flat rate if free shipping is applicable
+            }
         }
-    }
 
-    // Ensure only one free shipping option is displayed
-    if ($free_shipping_applicable) {
+        // Ensure only free shipping is displayed if applicable
+        if ($free_shipping_applicable) {
+            $rates = array_filter($rates, function($rate) {
+                return 'free_shipping' === $rate->method_id;
+            });
+            // Reset keys to avoid display issues
+            $rates = array_values($rates);
+        }
+    } else {
+        // If the zone does not have both "Flat Rate" and "Free Shipping," ensure only "Flat Rate" is available
         $rates = array_filter($rates, function($rate) {
-            return 'free_shipping' === $rate->method_id;
+            return 'flat_rate' === $rate->method_id;
         });
-        // Reset keys to avoid display issues
+        // Reset keys
         $rates = array_values($rates);
     }
 
